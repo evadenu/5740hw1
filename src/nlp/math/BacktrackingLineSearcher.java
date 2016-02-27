@@ -44,6 +44,8 @@ public class BacktrackingLineSearcher implements GradientLineSearcher {
 			// System.out.println("Initial was:       "+initialFunctionValue);
 			sufficientDecreaseObtained = (guessValue <= sufficientDecreaseValue);
 			if (!sufficientDecreaseObtained) {
+//				System.out.println(stepSize + " " + stepSizeMultiplier + " " + guessValue);
+
 				stepSize *= stepSizeMultiplier;
 				if (stepSize < EPS) {
 					// throw new

@@ -152,7 +152,7 @@ public class ProperNameTester {
 		} else if (model.equalsIgnoreCase("maxent")) {
 			// TODO: construct your maxent model here
 			ProbabilisticClassifierFactory<String, String> factory = new MaximumEntropyClassifier.Factory<String, String, String>(
-					1.0, 20, new ProperNameFeatureExtractor());
+					1.0, 40, new ProperNameFeatureExtractor());
 			classifier = factory.trainClassifier(trainingData);
 		} else {
 			throw new RuntimeException("Unknown model descriptor: " + model);

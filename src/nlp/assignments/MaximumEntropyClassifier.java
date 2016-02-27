@@ -180,11 +180,11 @@ public class MaximumEntropyClassifier<I, F, L> implements
 			for(int i = 0; i < data.length; i++) {
 				objective += getLogProbabilities(data[i], w, encoding, indexLinearizer)[data[i].getLabelIndex()];
 			}
-			objective *= -1;
 			
+			// Compute derivatives
 			for(int i = 0; i < data.length; i++) {
 				EncodedDatum datum = data[i];
-				int labelIndex = datum.labelIndex;
+				int labelIndex = datum.getLabelIndex();
 					
 				// first term, total counts
 				for(int n = 0; n < datum.getNumActiveFeatures(); n++) {
@@ -206,15 +206,19 @@ public class MaximumEntropyClassifier<I, F, L> implements
 				}
 			}
 			
-			// Negate all derivatives to maximize
+			// L2 regularization penalty and negation
+			double squareNorm = 0;
+            for (int i = 0; i<w.length;i++){
+                squareNorm += Math.pow(w[i],2);
+            }
+            objective -= 1/(2*Math.pow(sigma,2)) * squareNorm;
+			objective *= -1;
+			
 			for(int i = 0; i < derivatives.length; i++) {
+				derivatives[i] -= 1/sigma * w[i];
 				derivatives[i] *= -1;
 			}
 			
-			// TODO: incorporate penalty terms into the objective and
-			// derivatives
-			// penalties
-
 			return new Pair<Double, double[]>(objective, derivatives);
 		}
 
@@ -399,8 +403,6 @@ public class MaximumEntropyClassifier<I, F, L> implements
 			double[] weights, Encoding<F, L> encoding,
 			IndexLinearizer indexLinearizer) {
 		int numLabels = indexLinearizer.numLabels;
-		// linearized feature
-		double[] linearizedFeatures = new double[indexLinearizer.numFeatures * numLabels];
 		// log probabilities for each label
 		double[] logProbs = new double[numLabels];
 				
@@ -411,12 +413,8 @@ public class MaximumEntropyClassifier<I, F, L> implements
 				int fIndex = datum.getFeatureIndex(i);
 				double count = datum.getFeatureCount(i);
 				int linIndex = indexLinearizer.getLinearIndex(fIndex, l);
-				
-				linearizedFeatures[linIndex] = count;
+				logProbs[l] += weights[linIndex] * count;
 			}
-			
-			// calculate dot product between weights and linearized features
-			logProbs[l] = dot(weights, linearizedFeatures);
 		}
 		
 		// Normalize and apply log
