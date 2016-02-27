@@ -172,27 +172,64 @@ public class MaximumEntropyClassifier<I, F, L> implements
 		 * log conditional likelihood of the data is, as well as the derivatives
 		 * of that likelihood wrt each weight parameter.
 		 */
-		private Pair<Double, double[]> calculate(double[] x) {
+		private Pair<Double, double[]> calculate(double[] w) {
 			double objective = 0.0;
 			double[] derivatives = DoubleArrays.constantArray(0.0, dimension());
-			// TODO: compute the objective and its derivatives
-			// TODO
-
-			// logProb
-
-			// dummy code
-			objective = 42.0;
-			for (int i = 0; i < derivatives.length; i++) {
-				derivatives[i] = 0.0;
+			
+			for(int i = 0; i < data.length; i++) {
+				objective += getLogProbabilities(data[i], w, encoding, indexLinearizer)[data[i].getLabelIndex()];
 			}
-			// end dummy code
+			
+			for(int l = 0; l < indexLinearizer.numLabels; l++) {
+				// first term
+				for(int i = 0; i < data.length; i++) {
+					EncodedDatum datum = data[i];
+					int labelIndex = datum.labelIndex;
+					
+					// Indicator function, skip if label doesn't match
+					if (labelIndex != l) continue;
 
+					for(int n = 0; n < data[i].getNumActiveFeatures(); n++) {
+						int featureIndex = data[i].getFeatureIndex(n);
+						int linearIndex = indexLinearizer.getLinearIndex(featureIndex,labelIndex);
+						derivatives[linearIndex] += datum.getFeatureCount(n);
+					}
+				}
+				
+				for(int i = 0; i < derivatives.length; i++) {
+					int f = indexLinearizer.getFeatureIndex(i);
+					int li = indexLinearizer.getLabelIndex(i);
+					System.out.println(derivatives[i] + " " + encoding.getLabel(li) + " " + encoding.getFeature(f));
+				}
+				
+				// second term
+				for(int i = 0; i < data.length; i++) {
+					System.out.println(i);
+					EncodedDatum datum = data[i];
+					int labelIndex = datum.labelIndex;
+					double logProb = getLogProbabilities(datum, w, encoding, indexLinearizer)[l];
+
+					for(int n = 0; n < datum.getNumActiveFeatures(); n++) {
+						int featureIndex = datum.getFeatureIndex(n);
+						int linearIndex = indexLinearizer.getLinearIndex(featureIndex,labelIndex);
+						
+						System.out.println("Expected " + "" + encoding.getLabel(l) + " " +
+								encoding.getFeature(n) + Math.exp(logProb) * datum.getFeatureCount(n));
+						derivatives[linearIndex] -= Math.exp(logProb) * datum.getFeatureCount(n);
+					}
+				}
+			}
+			
+			// Negate all derivatives to maximize
+			for(int i = 0; i < derivatives.length; i++) {
+				derivatives[i] = -1 * derivatives[i];
+				System.out.println(derivatives[i]);
+			}
+			
 			// TODO: incorporate penalty terms into the objective and
 			// derivatives
 			// penalties
 
-			// TODO
-			// TODO
 			return new Pair<Double, double[]>(objective, derivatives);
 		}
 
@@ -369,10 +406,10 @@ public class MaximumEntropyClassifier<I, F, L> implements
 	}
 	
 	// gets the sum of an array
-	private static double sum(double[] v) {
+	private static double exp_sum(double[] v) {
 		double sum = 0;
 		for(int i = 0; i < v.length; i++) {
-			sum += v[i];
+			sum += Math.exp(v[i]);
 		}
 		return sum;
 	}
@@ -400,7 +437,6 @@ public class MaximumEntropyClassifier<I, F, L> implements
 				int linIndex = indexLinearizer.getLinearIndex(fIndex, l);
 				
 				linearizedFeatures[linIndex] = count;				
-//				logProbs[l] += Math.log(count * weights[linIndex]);
 			}
 			
 			// calculate dot product between weights and linearized features
@@ -408,15 +444,12 @@ public class MaximumEntropyClassifier<I, F, L> implements
 		}
 		
 		// Normalize and apply log
-		double probSum = sum(logProbs);
-		if (probSum == 0) {
-			for(int i = 0; i < logProbs.length; i++) {
-				logProbs[i] = Math.log(1.0 / numLabels);
-			}
-		} else {
-			for(int i = 0; i < logProbs.length; i++) {
-				logProbs[i] = Math.log(logProbs[i] / probSum);
-			}
+		double normSum = 0;
+		for(int i = 0; i < logProbs.length; i++) {
+			normSum += Math.exp(logProbs[i]);
+		}
+		for(int i = 0; i < logProbs.length; i++) {
+			logProbs[i] = Math.log(Math.exp(logProbs[i]) / normSum);
 		}
 		
 		return logProbs;
