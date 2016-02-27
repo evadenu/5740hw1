@@ -358,6 +358,25 @@ public class MaximumEntropyClassifier<I, F, L> implements
 	private IndexLinearizer indexLinearizer;
 	private FeatureExtractor<I, F> featureExtractor;
 
+	// Computes dot product between two vectors
+	private static double dot(double[] v1, double[] v2) {
+		assert v1.length == v2.length;
+		double result = 0;
+		for(int i = 0; i < v1.length; i++) {
+			result += v1[i] * v2[i];
+		}
+		return result;
+	}
+	
+	// gets the sum of an array
+	private static double sum(double[] v) {
+		double sum = 0;
+		for(int i = 0; i < v.length; i++) {
+			sum += v[i];
+		}
+		return sum;
+	}
+	
 	/**
 	 * Calculate the log probabilities of each class, for the given datum
 	 * (feature bundle). Note that the weighted votes (refered to as
@@ -366,19 +385,41 @@ public class MaximumEntropyClassifier<I, F, L> implements
 	private static <F, L> double[] getLogProbabilities(EncodedDatum datum,
 			double[] weights, Encoding<F, L> encoding,
 			IndexLinearizer indexLinearizer) {
-		// TODO: apply the classifier to this feature vector
-		// TODO
-		// TODO
-		// TODO
-
-		// dummy code
-		double[] logProbabilities = DoubleArrays.constantArray(
-				Double.NEGATIVE_INFINITY, encoding.getNumLabels());
-		logProbabilities[0] = 0.0;
-		return logProbabilities;
-		// end dummy code
-
-		// TODO
+		int numLabels = indexLinearizer.numLabels;
+		// linearized feature
+		double[] linearizedFeatures = new double[indexLinearizer.numFeatures * numLabels];
+		// log probabilities for each label
+		double[] logProbs = new double[numLabels];
+				
+		// for each label, calculate the log probability
+		for(int l = 0; l < numLabels; l++) {
+			// form linearized features for the given feature vector
+			for(int i = 0; i < datum.getNumActiveFeatures(); i++) {
+				int fIndex = datum.getFeatureIndex(i);
+				double count = datum.getFeatureCount(i);
+				int linIndex = indexLinearizer.getLinearIndex(fIndex, l);
+				
+				linearizedFeatures[linIndex] = count;				
+//				logProbs[l] += Math.log(count * weights[linIndex]);
+			}
+			
+			// calculate dot product between weights and linearized features
+			logProbs[l] = dot(weights, linearizedFeatures);
+		}
+		
+		// Normalize and apply log
+		double probSum = sum(logProbs);
+		if (probSum == 0) {
+			for(int i = 0; i < logProbs.length; i++) {
+				logProbs[i] = Math.log(1.0 / numLabels);
+			}
+		} else {
+			for(int i = 0; i < logProbs.length; i++) {
+				logProbs[i] = Math.log(logProbs[i] / probSum);
+			}
+		}
+		
+		return logProbs;
 	}
 
 	public Counter<L> getProbabilities(I input) {
