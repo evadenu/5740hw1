@@ -54,7 +54,7 @@ public class MaximumEntropyClassifier<I, F, L> implements
 			return new MaximumEntropyClassifier<I, F, L>(weights, encoding,
 					indexLinearizer, featureExtractor);
 		}
-
+		
 		private double[] buildInitialWeights(IndexLinearizer indexLinearizer) {
 			return DoubleArrays.constantArray(0.0,
 					indexLinearizer.getNumLinearIndexes());
@@ -65,7 +65,7 @@ public class MaximumEntropyClassifier<I, F, L> implements
 					encoding.getNumLabels());
 		}
 
-		private Encoding<F, L> buildEncoding(List<LabeledInstance<I, L>> data) {
+		public Encoding<F, L> buildEncoding(List<LabeledInstance<I, L>> data) {
 			Indexer<F> featureIndexer = new Indexer<F>();
 			Indexer<L> labelIndexer = new Indexer<L>();
 			for (LabeledInstance<I, L> labeledInstance : data) {
@@ -113,6 +113,7 @@ public class MaximumEntropyClassifier<I, F, L> implements
 			this.iterations = iterations;
 			this.featureExtractor = featureExtractor;
 		}
+
 	}
 
 	/**

@@ -148,8 +148,8 @@ public class ProperNameTester {
 	}
 	
 	private static void testClassifier(
-			ProbabilisticClassifier<String, String> classifier,
-			List<LabeledInstance<String, String>> testData, boolean verbose) {
+			ProbabilisticClassifier<String, String> classifier, PerceptronClassifier<String, String, String> pClassifier,
+			List<LabeledInstance<String, String>> testData, boolean verbose, boolean usePerceptron) {
 		double numCorrect = 0.0;
 		double numTotal = 0.0;
 		
@@ -160,11 +160,19 @@ public class ProperNameTester {
 		
 		for (LabeledInstance<String, String> testDatum : testData) {
 			String name = testDatum.getInput();
-			String predLabel = classifier.getLabel(name);
-			double confidence = classifier.getProbabilities(name).getCount(
-					predLabel);
+			String predLabel = null;
+			double confidence = 0;
+			
+			if(usePerceptron) {
+				predLabel = pClassifier.getLabel(name);
+			} else {
+				predLabel = classifier.getLabel(name);
+				confidence = classifier.getProbabilities(name).getCount(
+						predLabel);
+			}
 			
 			String truthLabel = testDatum.getLabel();
+			System.out.println(predLabel + " " + truthLabel);
 			
 			// Add to confidence scores
 			confidences.add(confidence);
@@ -201,7 +209,7 @@ public class ProperNameTester {
 		}
 		double accuracy = numCorrect / numTotal;
 		
-		// Analyze confusio matrix
+		// Analyze confusion matrix
 		for(String tLabel: confusion.keySet()) {
 			System.out.print(tLabel);
 			double total = 0;
@@ -278,6 +286,8 @@ public class ProperNameTester {
 
 		// Learn a classifier
 		ProbabilisticClassifier<String, String> classifier = null;
+		PerceptronClassifier<String, String, String> perceptronClassifier = null;
+		
 		if (model.equalsIgnoreCase("baseline")) {
 			classifier = new MostFrequentLabelClassifier.Factory<String, String>()
 					.trainClassifier(trainingData);
@@ -288,17 +298,22 @@ public class ProperNameTester {
 			
 			
 		} else if (model.equalsIgnoreCase("maxent")) {
-			// TODO: construct your maxent model here
+			// Train max entropy classifier
 			ProbabilisticClassifierFactory<String, String> factory = new MaximumEntropyClassifier.Factory<String, String, String>(
 					1.0, 10, new ProperNameFeatureExtractor());
 			classifier = factory.trainClassifier(trainingData);
+		} else if (model.equalsIgnoreCase("percep")) {
+			// Train perceptron classifier
+			perceptronClassifier = new PerceptronClassifier<String, String, String>(new ProperNameFeatureExtractor());
+			perceptronClassifier.trainPerceptron(trainingData, testData);
+			
 		} else {
 			throw new RuntimeException("Unknown model descriptor: " + model);
 		}
 
 		// Test classifier
-		testClassifier(classifier, (useValidation ? validationData : testData),
-				verbose);
+		testClassifier(classifier, perceptronClassifier, (useValidation ? validationData : testData),
+				verbose, true);
 //		testClassifier(classifier, (testData), verbose);
 	}
 }
