@@ -29,10 +29,53 @@ public class ProperNameTester {
 	public static class ProperNameFeatureExtractor implements
 			FeatureExtractor<String, String> {
 
+		/*
+		 * Extract n-gram features for a name
+		 */
 		public void extractNGrams(String name, int i, Counter<String> features, int n) {
 			for(int ng = 0; ng < n; ng++) {
 				if(i + ng + 1 > name.length()) break;
 				features.incrementCount(ng + "-" + name.substring(i, i + ng + 1), 1.0);
+			}
+		}
+		
+		/*
+		 * Extract non-ngram features for a name
+		 */
+		public void extractOtherFeatures(char[] characters, char ch, int i, Counter<String> features) {
+			if(i < characters.length-1) {
+				char ch1 = characters[i+1];
+				if(ch == '\'' && ch1 == 's') {
+					features.incrementCount("CONTAINS-POSS", 10.0);
+				}
+			}
+			
+			if(i < characters.length-2) {
+				char ch1 = characters[i+1];
+				char ch2 = characters[i+2];
+
+				if(ch == 'I' && ch1 == 'n' && ch2 == 'c') {
+					features.incrementCount("INCORPORATED", 5.0);
+				}
+				if(ch == 'T' && characters[i+1] == 'h' && characters[i+2] == 'e') {
+					features.incrementCount("CONTAINS-THE", 10.0);
+				}
+			}
+			
+			if(ch == '/') {
+				features.incrementCount("CONTAINS-SLASH", 50.0);
+			}
+			
+			if(ch == ':') {
+				features.incrementCount("CONTAINS-COLON", 50.0);
+			}
+			
+			if(ch == ' ') {
+				features.incrementCount("NUM-WORDS", 1.0);
+			}
+			
+			if("1234567890".contains(ch + "")) {
+				features.incrementCount("NUMBERS", 1.0);
 			}
 		}
 		
@@ -60,7 +103,7 @@ public class ProperNameTester {
 				}
 			}
 			
-			int nGrams = 4;
+			int nGrams = 12;
 			
 			for (int i = 0; i < characters.length; i++) {
 				char ch = characters[i];
@@ -68,44 +111,8 @@ public class ProperNameTester {
 				// add n-gram features
 				extractNGrams(name, i, features, nGrams);
 				
-				if(i < characters.length-1) {
-					char ch1 = characters[i+1];
-					if(ch == '\'' && ch1 == 's') {
-						features.incrementCount("CONTAINS-POSS", 10.0);
-					}
-				}
-				
-				if(i < characters.length-2) {
-					char ch1 = characters[i+1];
-					char ch2 = characters[i+2];
-
-					if(ch == 'I' && ch1 == 'n' && ch2 == 'c') {
-						features.incrementCount("INCORPORATED", 5.0);
-					}
-//						if(ch == 'C' && characters[i+1] == 'o' && (characters[i+2] == '>' || characters[i+2] == '.')) {
-//							features.incrementCount("INCORPORATED", 25.0);
-//						}
-					if(ch == 'T' && characters[i+1] == 'h' && characters[i+2] == 'e') {
-						features.incrementCount("CONTAINS-THE", 10.0);
-					}
-				}
-				
-				if(ch == '/') {
-					features.incrementCount("CONTAINS-SLASH", 50.0);
-				}
-				
-				if(ch == ':') {
-					features.incrementCount("CONTAINS-COLON", 50.0);
-				}
-				
-				if(ch == ' ') {
-					features.incrementCount("NUM-WORDS", 1.0);
-				}
-				
-				if("1234567890".contains(ch + "")) {
-					features.incrementCount("NUMBERS", 1.0);
-				}
-				
+				// Extract all other features
+				extractOtherFeatures(characters, ch, i, features);
 			}
 			
 			return features;
@@ -172,7 +179,6 @@ public class ProperNameTester {
 			}
 			
 			String truthLabel = testDatum.getLabel();
-			System.out.println(predLabel + " " + truthLabel);
 			
 			// Add to confidence scores
 			confidences.add(confidence);
@@ -215,14 +221,14 @@ public class ProperNameTester {
 			double total = 0;
 			double correct = 0;
 			Counter<String> predCounter = confusion.get(tLabel);
-			for(String pLabel: predCounter.keySet()) {
+			for(String pLabel: confusion.keySet()) {
 				double count = predCounter.getCount(pLabel);
 				
 				if(pLabel.equals(tLabel)) {
 					correct += count;
 				}
 				total += count;
-				System.out.print(" " + count);
+				System.out.print(" " + (int) count);
 			}
 			System.out.println(" Acc: " + (correct/total));
 		}
@@ -247,7 +253,9 @@ public class ProperNameTester {
 		String model = "baseline";
 		boolean verbose = false;
 		boolean useValidation = true;
-
+		boolean shuffle = false;
+		boolean averagePerceptron = false;
+		
 		// Update defaults using command line specifications
 
 		// The path to the assignment data
@@ -275,10 +283,18 @@ public class ProperNameTester {
 		if (argMap.containsKey("-verbose")) {
 			verbose = true;
 		}
+		
+		// Whether or not to shuffle the training data lines
+		if (argMap.containsKey("-shuffle")) {
+			shuffle = true;
+		}
+		if (argMap.containsKey("-average")) {
+			averagePerceptron = true;
+		}
 
 		// Load training, validation, and test data
 		List<LabeledInstance<String, String>> trainingData = loadData(basePath
-				+ "/pnp-train.txt");
+				+ "/pnp-train" + (shuffle? "-shuffle" : "") + ".txt");
 		List<LabeledInstance<String, String>> validationData = loadData(basePath
 				+ "/pnp-validate.txt");
 		List<LabeledInstance<String, String>> testData = loadData(basePath
@@ -287,6 +303,7 @@ public class ProperNameTester {
 		// Learn a classifier
 		ProbabilisticClassifier<String, String> classifier = null;
 		PerceptronClassifier<String, String, String> perceptronClassifier = null;
+		boolean usePerceptron = false;
 		
 		if (model.equalsIgnoreCase("baseline")) {
 			classifier = new MostFrequentLabelClassifier.Factory<String, String>()
@@ -300,12 +317,14 @@ public class ProperNameTester {
 		} else if (model.equalsIgnoreCase("maxent")) {
 			// Train max entropy classifier
 			ProbabilisticClassifierFactory<String, String> factory = new MaximumEntropyClassifier.Factory<String, String, String>(
-					1.0, 10, new ProperNameFeatureExtractor());
+					1.0, 40, new ProperNameFeatureExtractor());
 			classifier = factory.trainClassifier(trainingData);
 		} else if (model.equalsIgnoreCase("percep")) {
+			usePerceptron = true;
+			
 			// Train perceptron classifier
 			perceptronClassifier = new PerceptronClassifier<String, String, String>(new ProperNameFeatureExtractor());
-			perceptronClassifier.trainPerceptron(trainingData, testData);
+			perceptronClassifier.trainPerceptron(trainingData, averagePerceptron);
 			
 		} else {
 			throw new RuntimeException("Unknown model descriptor: " + model);
@@ -313,7 +332,6 @@ public class ProperNameTester {
 
 		// Test classifier
 		testClassifier(classifier, perceptronClassifier, (useValidation ? validationData : testData),
-				verbose, true);
-//		testClassifier(classifier, (testData), verbose);
+				verbose, usePerceptron);
 	}
 }

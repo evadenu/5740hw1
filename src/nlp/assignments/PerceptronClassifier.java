@@ -1,12 +1,8 @@
 package nlp.assignments;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-
 import nlp.assignments.MaximumEntropyClassifier.EncodedDatum;
 import nlp.assignments.MaximumEntropyClassifier.Encoding;
-import nlp.assignments.MaximumEntropyClassifier.Factory;
 import nlp.assignments.MaximumEntropyClassifier.IndexLinearizer;
 import nlp.classify.BasicFeatureVector;
 import nlp.classify.BasicLabeledFeatureVector;
@@ -14,7 +10,6 @@ import nlp.classify.FeatureExtractor;
 import nlp.classify.FeatureVector;
 import nlp.classify.LabeledFeatureVector;
 import nlp.classify.LabeledInstance;
-import nlp.classify.ProbabilisticClassifier;
 import nlp.math.DoubleArrays;
 import nlp.util.Counter;
 import nlp.util.Indexer;
@@ -31,45 +26,94 @@ public class PerceptronClassifier<I, F, L> {
 		featureExtractor = fe;
 	}
 	
-	public void trainPerceptron(List<LabeledInstance<I, L>> trainingData,
-			List<LabeledInstance<String, String>> testData){
-		
+	public void trainPerceptron(List<LabeledInstance<I, L>> trainingData, boolean average){
+		System.out.println("Encoding data...");
 		// build classifier
 		// build data encodings so the inner loops can be efficient
 		encoding = buildEncoding(trainingData);
 		indexLinearizer = buildIndexLinearizer(encoding);
-		w = DoubleArrays.constantArray(0.0, indexLinearizer.getNumLinearIndexes());
+		double[] w = buildInitialWeights(indexLinearizer);
+		double[] w_avg = buildInitialWeights(indexLinearizer);
 		EncodedDatum[] data = encodeData(trainingData, encoding);
 		
+		System.out.print("Training perceptron...");
 
 		//Loop through w and adjust if incorrect
 		//y*=argmax_y_wy * O(x)
+		
+//		Counter<Integer> labels = new Counter<Integer>();
+//		Counter<Integer> plabels = new Counter<Integer>();
+		
 		for(int i = 0; i < data.length; i++){
-			int pred = predict(data[i], indexLinearizer);
+			int pred = predict(data[i], indexLinearizer, w);
 			int trueLabel = data[i].getLabelIndex();
+			
+//			labels.incrementCount(trueLabel, 1.0);
+//			plabels.incrementCount(pred, 1.0);
+			
 			if(pred != trueLabel) {
-//				System.out.println(pred + " " + trueLabel);
-				if(pred != -1) {
-					updateWeights(data[i], w, pred, indexLinearizer, -1);
-				}
-				updateWeights(data[i], w, trueLabel, indexLinearizer, 1);
-			} else {
-//				System.out.println("correct " + pred + " " + trueLabel);
+				w = updateWeights(i, data[i], w, pred, trueLabel, indexLinearizer, 1);
+			}
+			if(average) {
+				w_avg = vec_add(w_avg, w);
 			}
 		}
-	}
-	
-	private void updateWeights(EncodedDatum datum, double[] w, int label, IndexLinearizer indexLinearizer, int sign) {
-		for(int n = 0; n < datum.getNumActiveFeatures(); n++) {
-			int linIndex = indexLinearizer.getLinearIndex(datum.getFeatureIndex(n), label);
-			w[linIndex] += datum.getFeatureCount(n) * sign;
+		
+//		for(int l: labels.keySet()) {
+//			System.out.println(l + " " + labels.getCount(l) + " " + plabels.getCount(l));
+//		}
+		
+		if(average) {
+			this.w = vec_div(w_avg, data.length);
+		} else {
+			this.w = w;
 		}
+		System.out.println("Done.");
 	}
 	
 	/*
-	 * Argmax y
+	 * Add vectors element-wise
 	 */
-	private int predict(EncodedDatum datum, IndexLinearizer indexLinearizer) {
+	private double[] vec_add(double[] v1, double[] v2) {
+		assert v1.length == v2.length;
+		for(int i = 0; i < v1.length; i++) {
+			v1[i] += v2[i];
+		}
+		return v1;
+	}
+	
+	/*
+	 * Divide vector by value element-wise
+	 */
+	private double[] vec_div(double[] v, double val) {
+		for(int i = 0; i < v.length; i++) {
+			v[i] /= val;
+		}
+		return v;
+	}
+	
+	/*
+	 * Update weight vector by subtracting predicted features and adding true label features
+	 */
+	private double[] updateWeights(int i, EncodedDatum datum, double[] w, int predLabel, int trueLabel, IndexLinearizer indexLinearizer, int sign) {
+		for(int n = 0; n < datum.getNumActiveFeatures(); n++) {
+			// Subtract predicted features
+			if(predLabel != -1) {
+				int pLinIndex = indexLinearizer.getLinearIndex(datum.getFeatureIndex(n), predLabel);
+				w[pLinIndex] -= datum.getFeatureCount(n);
+			}
+
+			// Add true features
+			int tLinIndex = indexLinearizer.getLinearIndex(datum.getFeatureIndex(n), trueLabel);
+			w[tLinIndex] += datum.getFeatureCount(n);
+		}
+		return w;
+	}
+	
+	/*
+	 * Compute argmax y, given a new sample and weight vector
+	 */
+	private int predict(EncodedDatum datum, IndexLinearizer indexLinearizer, double[] w) {
 		int max_label = -1;
 		double max_score = 0;
 		
@@ -89,26 +133,38 @@ public class PerceptronClassifier<I, F, L> {
 		return max_label;
 	}
 	
+	/*
+	 * Predict a label for the given name
+	 */
 	public L getLabel(I name) {
 		FeatureVector<F> featureVector = new BasicFeatureVector<F>(
 				featureExtractor.extractFeatures(name));
 		EncodedDatum encodedDatum = EncodedDatum.encodeDatum(featureVector,
 				encoding);
 		
-		int pred = predict(encodedDatum, indexLinearizer);
+		int pred = predict(encodedDatum, indexLinearizer, w);
 		return encoding.getLabel(pred);
 	}
 	
+	/*
+	 * Copied from MaximumEntropyClassifier
+	 */
 	private double[] buildInitialWeights(IndexLinearizer indexLinearizer) {
 		return DoubleArrays.constantArray(0.0,
 				indexLinearizer.getNumLinearIndexes());
 	}
 
+	/*
+	 * Copied from MaximumEntropyClassifier
+	 */
 	private IndexLinearizer buildIndexLinearizer(Encoding<F, L> encoding) {
 		return new IndexLinearizer(encoding.getNumFeatures(),
 				encoding.getNumLabels());
 	}
 
+	/*
+	 * Copied from MaximumEntropyClassifier
+	 */
 	public Encoding<F, L> buildEncoding(List<LabeledInstance<I, L>> data) {
 		Indexer<F> featureIndexer = new Indexer<F>();
 		Indexer<L> labelIndexer = new Indexer<L>();
@@ -126,6 +182,9 @@ public class PerceptronClassifier<I, F, L> {
 		return new Encoding<F, L>(featureIndexer, labelIndexer);
 	}
 
+	/*
+	 * Copied from MaximumEntropyClassifier
+	 */
 	private EncodedDatum[] encodeData(List<LabeledInstance<I, L>> data,
 			Encoding<F, L> encoding) {
 		EncodedDatum[] encodedData = new EncodedDatum[data.size()];
@@ -140,63 +199,6 @@ public class PerceptronClassifier<I, F, L> {
 					labeledFeatureVector, encoding);
 		}
 		return encodedData;
-	}
-	
-	public static void main(String[] args) {
-
-
-		// create datums
-		LabeledInstance<String[], String> datum1 = new LabeledInstance<String[], String>(
-				"cat", new String[] { "fuzzy", "claws", "small" });
-		LabeledInstance<String[], String> datum2 = new LabeledInstance<String[], String>(
-				"bear", new String[] { "fuzzy", "claws", "big" });
-		LabeledInstance<String[], String> datum3 = new LabeledInstance<String[], String>(
-				"cat", new String[] { "claws", "medium" });
-		
-		
-		LabeledInstance<String[], String> datum4 = new LabeledInstance<String[], String>(
-				"cat", new String[] { "claws", "small" });
-			
-		// create training set
-		List<LabeledInstance<String[], String>> trainingData = new ArrayList<LabeledInstance<String[], String>>();
-		trainingData.add(datum1);
-		trainingData.add(datum2);
-		trainingData.add(datum3);
-
-		// create test set
-		List<LabeledInstance<String[], String>> testData = new ArrayList<LabeledInstance<String[], String>>();
-		testData.add(datum4);
-//
-//		// build classifier
-//		FeatureExtractor<String[], String> featureExtractor = new FeatureExtractor<String[], String>() {
-//			public Counter<String> extractFeatures(String[] featureArray) {
-//				return new Counter<String>(Arrays.asList(featureArray));
-//			}
-//		};
-//		MaximumEntropyClassifier.Factory<String[], String, String> maximumEntropyClassifierFactory = new MaximumEntropyClassifier.Factory<String[], String, String>(
-//				1.0, 20, featureExtractor);
-		
-//		ProbabilisticClassifier<String[], String> maximumEntropyClassifier = maximumEntropyClassifierFactory
-//				.trainClassifier(trainingData);
-//		System.out.println("Probabilities on test instance: "
-//				+ maximumEntropyClassifier.getProbabilities(datum4.getInput()));
-
-
-		//Can use the log probabilities
-		
-		// Perceptron 
-//		int[] instance = {0,10,20,30,40};
-//		PerceptronClassifier<I, F, L>.
-//		int[] adjW = buildPerceptron(trainingData,testData);
-//		
-//		for(int i = 0; i<adjW.length; i++){
-//			if(i>0){
-//				//System.out.print(",");
-//			}
-			//System.out.print(adjW[i]);
-			
-			
-//		}
 	}
 
 }
