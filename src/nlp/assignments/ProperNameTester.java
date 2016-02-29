@@ -1,5 +1,6 @@
 package nlp.assignments;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
@@ -28,6 +29,13 @@ public class ProperNameTester {
 	public static class ProperNameFeatureExtractor implements
 			FeatureExtractor<String, String> {
 
+		public void extractNGrams(String name, int i, Counter<String> features, int n) {
+			for(int ng = 0; ng < n; ng++) {
+				if(i + ng + 1 > name.length()) break;
+				features.incrementCount(ng + "-" + name.substring(i, i + ng + 1), 1.0);
+			}
+		}
+		
 		/**
 		 * This method takes the list of characters representing the proper name
 		 * description, and produces a list of features which represent that
@@ -37,17 +45,69 @@ public class ProperNameTester {
 		 * possible.
 		 */
 		public Counter<String> extractFeatures(String name) {
+			// append start and end indicators
+			name = "<" + name + ">";
+			
 			char[] characters = name.toCharArray();
 			Counter<String> features = new Counter<String>();
-			// add character unigram features
-			for (int i = 0; i < characters.length; i++) {
-				char character = characters[i];
-				features.incrementCount("UNI-" + character, 1.0);
+			
+			// word bigram features
+			String[] tokens = name.split(" ");
+			for(int i = 0; i < tokens.length; i++) {
+				features.incrementCount("WORD-" + tokens[i], 1.0);
+				if(i < tokens.length - 1) {
+					features.incrementCount("WORD-" + tokens[i] + tokens[i+1], 1.0);
+				}
 			}
-			// TODO : extract better features!
-			// TODO
-			// TODO
-			// TODO
+			
+			int nGrams = 4;
+			
+			for (int i = 0; i < characters.length; i++) {
+				char ch = characters[i];
+				
+				// add n-gram features
+				extractNGrams(name, i, features, nGrams);
+				
+				if(i < characters.length-1) {
+					char ch1 = characters[i+1];
+					if(ch == '\'' && ch1 == 's') {
+						features.incrementCount("CONTAINS-POSS", 10.0);
+					}
+				}
+				
+				if(i < characters.length-2) {
+					char ch1 = characters[i+1];
+					char ch2 = characters[i+2];
+
+					if(ch == 'I' && ch1 == 'n' && ch2 == 'c') {
+						features.incrementCount("INCORPORATED", 5.0);
+					}
+//						if(ch == 'C' && characters[i+1] == 'o' && (characters[i+2] == '>' || characters[i+2] == '.')) {
+//							features.incrementCount("INCORPORATED", 25.0);
+//						}
+					if(ch == 'T' && characters[i+1] == 'h' && characters[i+2] == 'e') {
+						features.incrementCount("CONTAINS-THE", 10.0);
+					}
+				}
+				
+				if(ch == '/') {
+					features.incrementCount("CONTAINS-SLASH", 50.0);
+				}
+				
+				if(ch == ':') {
+					features.incrementCount("CONTAINS-COLON", 50.0);
+				}
+				
+				if(ch == ' ') {
+					features.incrementCount("NUM-WORDS", 1.0);
+				}
+				
+				if("1234567890".contains(ch + "")) {
+					features.incrementCount("NUMBERS", 1.0);
+				}
+				
+			}
+			
 			return features;
 		}
 	}
@@ -68,23 +128,71 @@ public class ProperNameTester {
 		reader.close();
 		return labeledInstances;
 	}
+	
+	private static double max(ArrayList<Double> arr) {
+		double max = 0;
+		for(double d: arr) {
+			if(d > max) {
+				max = d;
+			}
+		}
+		return max;
+	}
 
+	private static double mean(ArrayList<Double> arr) {
+		double total = 0;
+		for(double d: arr) {
+			total += d;
+		}
+		return total/arr.size();
+	}
+	
 	private static void testClassifier(
 			ProbabilisticClassifier<String, String> classifier,
 			List<LabeledInstance<String, String>> testData, boolean verbose) {
 		double numCorrect = 0.0;
 		double numTotal = 0.0;
+		
+		// Confidence scores and confusion matrix
+		ArrayList<Double> confidences = new ArrayList<Double>();	
+		HashMap<Double, Integer[]> confidence_scores = new HashMap<Double, Integer[]>();
+		HashMap<String, Counter<String>> confusion = new HashMap<String, Counter<String>>();
+		
 		for (LabeledInstance<String, String> testDatum : testData) {
 			String name = testDatum.getInput();
-			String label = classifier.getLabel(name);
+			String predLabel = classifier.getLabel(name);
 			double confidence = classifier.getProbabilities(name).getCount(
-					label);
-			if (label.equals(testDatum.getLabel())) {
+					predLabel);
+			
+			String truthLabel = testDatum.getLabel();
+			
+			// Add to confidence scores
+			confidences.add(confidence);
+			
+			double rounded_conf = Math.round(confidence * 10)/10.0;
+			if(!confidence_scores.containsKey(rounded_conf)) {
+				Integer[] arr = {0, 0};
+				confidence_scores.put(rounded_conf, arr);
+			}
+			Integer[] counts = confidence_scores.get(rounded_conf);
+			counts[1]++;	// update total count for this score
+			
+			// Update confusion matrix
+			if(!confusion.containsKey(truthLabel)) {
+				confusion.put(truthLabel, new Counter<String>());
+			}
+			confusion.get(truthLabel).incrementCount(predLabel, 1.0);
+
+			if (predLabel.equals(truthLabel)) {
 				numCorrect += 1.0;
+				counts[0]++;	// update total correct for this conf score
 			} else {
+				if(confidence >= 0.8) {
+					System.out.println("Misclassified: " + name + " as " + predLabel + " ; " + truthLabel);
+				}
 				if (verbose) {
 					// display an error
-					System.err.println("Error: " + name + " guess=" + label
+					System.err.println("Error: " + name + " guess=" + predLabel
 							+ " gold=" + testDatum.getLabel() + " confidence="
 							+ confidence);
 				}
@@ -92,7 +200,33 @@ public class ProperNameTester {
 			numTotal += 1.0;
 		}
 		double accuracy = numCorrect / numTotal;
+		
+		// Analyze confusio matrix
+		for(String tLabel: confusion.keySet()) {
+			System.out.print(tLabel);
+			double total = 0;
+			double correct = 0;
+			Counter<String> predCounter = confusion.get(tLabel);
+			for(String pLabel: predCounter.keySet()) {
+				double count = predCounter.getCount(pLabel);
+				
+				if(pLabel.equals(tLabel)) {
+					correct += count;
+				}
+				total += count;
+				System.out.print(" " + count);
+			}
+			System.out.println(" Acc: " + (correct/total));
+		}
+		
+		// Analyze confidence score
+		for(double score: confidence_scores.keySet()) {
+			Integer[] counts = confidence_scores.get(score);
+			System.out.println(score + " " + (double) counts[0]/counts[1]);
+		}
+		
 		System.out.println("Accuracy: " + accuracy);
+		System.out.println("max conf: " + max(confidences) + " mean: " + mean(confidences));
 	}
 
 	public static void main(String[] args) throws IOException {
@@ -149,10 +283,14 @@ public class ProperNameTester {
 					.trainClassifier(trainingData);
 		} else if (model.equalsIgnoreCase("n-gram")) {
 			// TODO: construct your n-gram model here
+			
+			
+			
+			
 		} else if (model.equalsIgnoreCase("maxent")) {
 			// TODO: construct your maxent model here
 			ProbabilisticClassifierFactory<String, String> factory = new MaximumEntropyClassifier.Factory<String, String, String>(
-					1.0, 40, new ProperNameFeatureExtractor());
+					1.0, 10, new ProperNameFeatureExtractor());
 			classifier = factory.trainClassifier(trainingData);
 		} else {
 			throw new RuntimeException("Unknown model descriptor: " + model);
@@ -161,5 +299,6 @@ public class ProperNameTester {
 		// Test classifier
 		testClassifier(classifier, (useValidation ? validationData : testData),
 				verbose);
+		testClassifier(classifier, (testData), verbose);
 	}
 }
