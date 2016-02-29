@@ -299,6 +299,6 @@ public class ProperNameTester {
 		// Test classifier
 		testClassifier(classifier, (useValidation ? validationData : testData),
 				verbose);
-		testClassifier(classifier, (testData), verbose);
+//		testClassifier(classifier, (testData), verbose);
 	}
 }
